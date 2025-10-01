@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Web Học Tập</title>
+<style>
+body {
+  font-family: Arial, sans-serif;
+  background: #f5f5f5;
+  margin: 0;
+  text-align: center;
+}
+h1,h2 { margin: 20px; }
+button {
+  margin: 4px;
+  padding: 6px 14px;
+  font-size: 14px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.subject, .doc, .task {
+  background: #fff;
+  border-radius: 12px;
+  padding: 10px;
+  margin: 8px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+}
+.subject:hover, .doc:hover { background: #ffe4ec; }
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px,1fr));
+  gap: 10px;
+  padding: 10px;
+}
+video, canvas {
+  width: 100%;
+  max-width: 400px;
+  margin: 10px auto;
+  border-radius: 12px;
+  background: #000;
+}
+img {
+  width: 90%;
+  max-width: 280px;
+  margin: 8px auto;
+  border-radius: 10px;
+  display:block;
+}
+.task-list {
+  max-width: 400px;
+  margin: 10px auto;
+  text-align: left;
+}
+.task.overdue { background: #ffcccc; }
+.hidden { display: none; }
+
+/* Modal */
+.modal {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: rgba(0,0,0,0.5);
+  z-index: 1000;
+}
+.modal-content {
+  background: #fff;
+  padding: 20px;
+  border-radius: 12px;
+  text-align: center;
+  width: 300px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.modal.hidden { display: none; }
+
+#previewList img {
+  width:120px;
+  margin:5px;
+  border-radius:8px;
+  box-shadow:0 2px 6px rgba(0,0,0,0.3);
+}
+</style>
+</head>
+<body>
+
+<!-- Trang chủ -->
+<div id="home">
+  <h1>Chọn môn học</h1>
+  <div class="grid">
+    <div class="subject" onclick="openSubject('Toán')">📐 Toán</div>
+    <div class="subject" onclick="openSubject('Ngữ Văn')">📖 Ngữ Văn</div>
+    <div class="subject" onclick="openSubject('Lịch Sử')">📜 Lịch Sử</div>
+    <div class="subject" onclick="openSubject('Địa Lý')">🌍 Địa Lý</div>
+    <div class="subject" onclick="openSubject('Sinh học')">🧬 Sinh học</div>
+    <div class="subject" onclick="openSubject('Hóa học')">⚗️ Hóa học</div>
+  </div>
+</div>
+
+<!-- Trang môn học -->
+<div id="subjectPage" class="hidden">
+  <h1 id="subjectTitle"></h1>
+
+  <!-- Quản lý bài tập -->
+  <h2>📒 Bài tập về nhà</h2>
+  <input type="text" id="taskInput" placeholder="Nhập tên bài tập...">
+  <input type="date" id="taskDeadline">
+  <button onclick="addTask()">➕ Thêm</button>
+  <div id="taskList" class="task-list"></div>
+
+  <!-- Quản lý tài liệu -->
+  <h2>📑 Tài liệu</h2>
+  <button onclick="openNewDocDialog()">➕ Tạo tài liệu mới</button>
+  <div id="docList" class="grid"></div>
+
+  <br>
+  <button onclick="goHome()">⬅ Quay lại</button>
+</div>
+
+<!-- Trang chụp ảnh -->
+<div id="cameraPage" class="hidden">
+  <h2 id="docTitle"></h2>
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas" class="hidden"></canvas>
+  <div>
+    <button onclick="takePhoto()">📸 Chụp</button>
+    <button onclick="switchCamera()" id="switchBtn" class="hidden">🔄 Đổi camera</button>
+    <button onclick="finishCapture()">✅ Xong</button>
+  </div>
+  <div id="previewList"></div>
+</div>
+
+<!-- Trang xem tài liệu -->
+<div id="viewDocPage" class="hidden">
+  <h2 id="viewDocTitle"></h2>
+  <div id="photoList"></div>
+  <button onclick="backToDocs()">⬅ Quay lại</button>
+</div>
+
+<!-- Modal nhập tên tài liệu -->
+<div id="newDocDialog" class="modal hidden">
+  <div class="modal-content">
+    <h3>📑 Nhập tên tài liệu</h3>
+    <input type="text" id="docNameInput" placeholder="Tên tài liệu...">
+    <br><br>
+    <button onclick="createDocument()">Tạo</button>
+    <button onclick="closeDialog()">Hủy</button>
+  </div>
+</div>
+
+<!-- Modal xác nhận xóa -->
+<div id="deleteDocDialog" class="modal hidden">
+  <div class="modal-content">
+    <h3>🗑 Xóa tài liệu</h3>
+    <p id="deleteDocMessage"></p>
+    <button onclick="confirmDeleteDoc()">Xóa</button>
+    <button onclick="closeDeleteDialog()">Hủy</button>
+  </div>
+</div>
+
+<script>
+let currentSubject = "";
+let currentDocId = null;
+let stream = null;
+let docToDelete = null;
+let usingFront = true; // mặc định dùng cam trước
+
+/* IndexedDB */
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open("StudyApp", 1);
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains("documents")) {
+        db.createObjectStore("documents", { keyPath: "id", autoIncrement: true });
+      }
+    };
+    request.onsuccess = (e) => resolve(e.target.result);
+    request.onerror = (e) => reject(e.target.error);
+  });
+}
+async function getAllDocs() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("documents", "readonly");
+    const store = tx.objectStore("documents");
+    const request = store.getAll();
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+async function addDoc(doc) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("documents", "readwrite");
+    const store = tx.objectStore("documents");
+    const request = store.add(doc);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = (e) => reject(e.target.error);
+  });
+}
+async function updateDoc(doc) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("documents", "readwrite");
+    const store = tx.objectStore("documents");
+    const request = store.put(doc);
+    request.onsuccess = () => resolve();
+    request.onerror = (e) => reject(e.target.error);
+  });
+}
+async function deleteDoc(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("documents", "readwrite");
+    const store = tx.objectStore("documents");
+    const request = store.delete(id);
+    request.onsuccess = () => resolve();
+    request.onerror = (e) => reject(e.target.error);
+  });
+}
+async function getDoc(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("documents", "readonly");
+    const store = tx.objectStore("documents");
+    const request = store.get(id);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = (e) => reject(e.target.error);
+  });
+}
+
+/* Môn học */
+async function openSubject(name) {
+  currentSubject = name;
+  document.getElementById("subjectTitle").innerText = "Môn: " + name;
+  document.getElementById("home").classList.add("hidden");
+  document.getElementById("subjectPage").classList.remove("hidden");
+  loadTasks();
+  showDocs();
+}
+function goHome() {
+  document.getElementById("subjectPage").classList.add("hidden");
+  document.getElementById("home").classList.remove("hidden");
+}
+
+/* Bài tập */
+function addTask() {
+  const taskText = document.getElementById("taskInput").value.trim();
+  const deadline = document.getElementById("taskDeadline").value;
+  if (!taskText || !deadline) { alert("Vui lòng nhập đầy đủ thông tin!"); return; }
+  let tasks = JSON.parse(localStorage.getItem("tasks_" + currentSubject) || "[]");
+  tasks.push({ text: taskText, deadline: deadline });
+  localStorage.setItem("tasks_" + currentSubject, JSON.stringify(tasks));
+  document.getElementById("taskInput").value = "";
+  document.getElementById("taskDeadline").value = "";
+  loadTasks();
+}
+function deleteTask(index) {
+  let tasks = JSON.parse(localStorage.getItem("tasks_" + currentSubject) || "[]");
+  tasks.splice(index, 1);
+  localStorage.setItem("tasks_" + currentSubject, JSON.stringify(tasks));
+  loadTasks();
+}
+function loadTasks() {
+  let tasks = JSON.parse(localStorage.getItem("tasks_" + currentSubject) || "[]");
+  const list = document.getElementById("taskList");
+  list.innerHTML = "";
+  const today = new Date().toISOString().split("T")[0];
+  tasks.forEach((task,i) => {
+    const div = document.createElement("div");
+    div.classList.add("task");
+    if (task.deadline < today) div.classList.add("overdue");
+    div.innerHTML = `<b>${task.text}</b><br>Hạn: ${task.deadline} 
+      <button onclick="deleteTask(${i})">❌</button>`;
+    list.appendChild(div);
+  });
+}
+
+/* Tài liệu */
+async function showDocs() {
+  const list = document.getElementById("docList");
+  list.innerHTML = "";
+  const allDocs = await getAllDocs();
+  const docs = allDocs.filter(d => d.subject === currentSubject);
+  docs.forEach(doc=>{
+    const div = document.createElement("div");
+    div.className="doc";
+    div.innerHTML = `
+      <b>${doc.name}</b><br>
+      (${doc.images.length} ảnh)<br>
+      <button onclick="viewDoc(${doc.id})">👁 Xem</button>
+      <button onclick="openDeleteDialog(${doc.id}, '${doc.name}')">🗑 Xoá</button>
+    `;
+    list.appendChild(div);
+  });
+}
+function openNewDocDialog() {
+  document.getElementById("docNameInput").value="";
+  document.getElementById("newDocDialog").classList.remove("hidden");
+}
+function closeDialog() {
+  document.getElementById("newDocDialog").classList.add("hidden");
+}
+async function createDocument() {
+  const name = document.getElementById("docNameInput").value.trim();
+  if (!name) return;
+  closeDialog();
+  currentDocId = await addDoc({subject: currentSubject, name: name, images: []});
+  document.getElementById("docTitle").innerText = "Tài liệu: " + name;
+  document.getElementById("subjectPage").classList.add("hidden");
+  document.getElementById("cameraPage").classList.remove("hidden");
+  document.getElementById("previewList").innerHTML = ""; 
+  openCamera();
+}
+
+/* Camera */
+async function openCamera() {
+  if (stream) stream.getTracks().forEach(t=>t.stop());
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: usingFront ? "user" : "environment" }
+    });
+    const video = document.getElementById("video");
+    video.srcObject = stream;
+    await video.play(); // fix iPhone video đen
+    // Nếu trên điện thoại -> hiện nút đổi camera
+    if (/Mobi|Android|iPhone/i.test(navigator.userAgent)) {
+      document.getElementById("switchBtn").classList.remove("hidden");
+    } else {
+      document.getElementById("switchBtn").classList.add("hidden");
+    }
+  } catch(err) {
+    alert("Không thể mở camera: " + err);
+  }
+}
+function switchCamera() {
+  usingFront = !usingFront;
+  openCamera();
+}
+async function takePhoto() {
+  const video = document.getElementById("video");
+  const canvas = document.getElementById("canvas");
+  const ctx = canvas.getContext("2d");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  ctx.drawImage(video,0,0);
+  const imgData = canvas.toDataURL("image/jpeg", 0.7);
+  let doc = await getDoc(currentDocId);
+  doc.images.push(imgData);
+  await updateDoc(doc);
+  showPreviewImages(doc.images);
+}
+function showPreviewImages(images) {
+  const list = document.getElementById("previewList");
+  list.innerHTML = "";
+  images.forEach((img,i)=>{
+    const container = document.createElement("div");
+    const image = document.createElement("img");
+    image.src = img;
+    const btn = document.createElement("button");
+    btn.textContent = "🗑 Xoá";
+    btn.onclick = async ()=>{
+      let doc = await getDoc(currentDocId);
+      doc.images.splice(i,1);
+      await updateDoc(doc);
+      showPreviewImages(doc.images);
+    };
+    container.appendChild(image);
+    container.appendChild(btn);
+    list.appendChild(container);
+  });
+}
+function finishCapture() {
+  if (stream) stream.getTracks().forEach(t=>t.stop());
+  document.getElementById("cameraPage").classList.add("hidden");
+  document.getElementById("subjectPage").classList.remove("hidden");
+  showDocs();
+}
+async function viewDoc(id) {
+  const doc = await getDoc(id);
+  currentDocId = id;
+  document.getElementById("viewDocTitle").innerText = "📑 " + doc.name;
+  const list = document.getElementById("photoList");
+  list.innerHTML = "";
+  doc.images.forEach((img,i)=>{
+    const container = document.createElement("div");
+    const image = document.createElement("img");
+    image.src = img;
+    const btn = document.createElement("button");
+    btn.textContent = "🗑 Xoá ảnh";
+    btn.onclick = async ()=>{
+      let d = await getDoc(currentDocId);
+      d.images.splice(i,1);
+      await updateDoc(d);
+      viewDoc(currentDocId);
+    };
+    container.appendChild(image);
+    container.appendChild(btn);
+    list.appendChild(container);
+  });
+  document.getElementById("subjectPage").classList.add("hidden");
+  document.getElementById("viewDocPage").classList.remove("hidden");
+}
+function backToDocs() {
+  document.getElementById("viewDocPage").classList.add("hidden");
+  document.getElementById("subjectPage").classList.remove("hidden");
+}
+function openDeleteDialog(id, name) {
+  docToDelete = id;
+  document.getElementById("deleteDocMessage").innerText =
+    `Bạn có chắc muốn xoá tài liệu "${name}" không?`;
+  document.getElementById("deleteDocDialog").classList.remove("hidden");
+}
+function closeDeleteDialog() {
+  document.getElementById("deleteDocDialog").classList.add("hidden");
+  docToDelete = null;
+}
+async function confirmDeleteDoc() {
+  if (docToDelete !== null) {
+    await deleteDoc(docToDelete);
+    showDocs();
+  }
+  closeDeleteDialog();
+}
+</script>
+</body>
+</html>
