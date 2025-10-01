@@ -82,6 +82,38 @@ img {
   border-radius:8px;
   box-shadow:0 2px 6px rgba(0,0,0,0.3);
 }
+
+/* Scan frame overlay */
+#cameraWrapper {
+  position: relative;
+  display: inline-block;
+}
+#video {
+  width: 90%;
+  max-width: 500px;
+  aspect-ratio: 3/4;
+  border-radius: 12px;
+  object-fit: cover;
+  background: #000;
+}
+.scan-frame {
+  position: absolute;
+  top: 0; left: 50%;
+  transform: translateX(-50%);
+  width: 90%;
+  max-width: 500px;
+  aspect-ratio: 3/4;
+  border: 4px solid limegreen;
+  border-radius: 12px;
+  box-shadow: 0 0 15px rgba(0,255,0,0.5);
+  pointer-events: none;
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0% { border-color: limegreen; box-shadow: 0 0 10px rgba(0,255,0,0.5); }
+  50% { border-color: red; box-shadow: 0 0 15px rgba(255,0,0,0.6); }
+  100% { border-color: limegreen; box-shadow: 0 0 10px rgba(0,255,0,0.5); }
+}
 </style>
 </head>
 <body>
@@ -122,7 +154,10 @@ img {
 <!-- Trang chụp ảnh -->
 <div id="cameraPage" class="hidden">
   <h2 id="docTitle"></h2>
-  <video id="video" autoplay playsinline muted></video>
+  <div id="cameraWrapper">
+    <video id="video" autoplay playsinline muted></video>
+    <div class="scan-frame"></div>
+  </div>
   <canvas id="canvas" class="hidden"></canvas>
   <div>
     <button onclick="takePhoto()">📸 Chụp</button>
@@ -321,11 +356,23 @@ async function openCamera() {
   if (stream) stream.getTracks().forEach(t=>t.stop());
   try {
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: usingFront ? "user" : "environment" }
+      video: {
+        facingMode: usingFront ? "user" : "environment",
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      }
     });
     const video = document.getElementById("video");
     video.srcObject = stream;
     await video.play(); // fix iPhone video đen
+
+    // Nếu đang dùng cam trước -> lật gương
+    if (usingFront) {
+      video.style.transform = "scaleX(-1)";
+    } else {
+      video.style.transform = "scaleX(1)";
+    }
+
     // Nếu trên điện thoại -> hiện nút đổi camera
     if (/Mobi|Android|iPhone/i.test(navigator.userAgent)) {
       document.getElementById("switchBtn").classList.remove("hidden");
@@ -346,6 +393,13 @@ async function takePhoto() {
   const ctx = canvas.getContext("2d");
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
+
+  // Nếu cam trước thì phải lật ảnh lại (vì đã mirror preview)
+  if (usingFront) {
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+  }
+
   ctx.drawImage(video,0,0);
   const imgData = canvas.toDataURL("image/jpeg", 0.7);
   let doc = await getDoc(currentDocId);
@@ -416,14 +470,14 @@ function openDeleteDialog(id, name) {
 }
 function closeDeleteDialog() {
   document.getElementById("deleteDocDialog").classList.add("hidden");
-  docToDelete = null;
 }
 async function confirmDeleteDoc() {
   if (docToDelete !== null) {
     await deleteDoc(docToDelete);
+    docToDelete = null;
+    closeDeleteDialog();
     showDocs();
   }
-  closeDeleteDialog();
 }
 </script>
 </body>
