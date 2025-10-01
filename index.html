@@ -7,84 +7,54 @@
 <style>
 body {
   font-family: Arial, sans-serif;
-  background: #f0f2f5;
+  background: #f5f5f5;
   margin: 0;
   text-align: center;
-  color: #333;
 }
 h1,h2 { margin: 20px; }
-
-/* Nút bấm */
 button {
-  margin: 6px;
-  padding: 10px 18px;
-  font-size: 15px;
+  margin: 4px;
+  padding: 6px 14px;
+  font-size: 14px;
   border: none;
-  border-radius: 10px;
+  border-radius: 8px;
   cursor: pointer;
-  background: #4a90e2;
-  color: white;
-  transition: 0.2s;
 }
-button:hover { background: #357ab8; }
-
-/* Thẻ chung */
 .subject, .doc, .task {
   background: #fff;
-  border-radius: 14px;
-  padding: 16px;
-  margin: 10px;
-  box-shadow: 0 3px 8px rgba(0,0,0,0.15);
-  font-size: 16px;
+  border-radius: 12px;
+  padding: 10px;
+  margin: 8px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
 }
-.subject:hover, .doc:hover { background: #ffeef5; }
-
-/* Grid layout */
+.subject:hover, .doc:hover { background: #ffe4ec; }
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px,1fr));
-  gap: 15px;
-  padding: 15px;
-  max-width: 1000px;
-  margin: auto;
+  grid-template-columns: repeat(auto-fill, minmax(140px,1fr));
+  gap: 10px;
+  padding: 10px;
 }
-
-/* Video, canvas */
 video, canvas {
-  width: 95%;
-  max-width: 500px;
-  margin: 12px auto;
-  border-radius: 14px;
-  background: #000;
-  box-shadow: 0 3px 10px rgba(0,0,0,0.3);
-}
-img {
-  width: 95%;
-  max-width: 350px;
+  width: 100%;
+  max-width: 400px;
   margin: 10px auto;
   border-radius: 12px;
-  display:block;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  background: #000;
 }
-
-/* Task list */
+img {
+  width: 90%;
+  max-width: 280px;
+  margin: 8px auto;
+  border-radius: 10px;
+  display:block;
+}
 .task-list {
-  max-width: 600px;
-  margin: 15px auto;
+  max-width: 400px;
+  margin: 10px auto;
   text-align: left;
 }
 .task.overdue { background: #ffcccc; }
-
-/* Input đẹp hơn */
-input[type="text"], input[type="date"] {
-  padding: 10px;
-  border-radius: 8px;
-  border: 1px solid #ccc;
-  margin: 5px;
-  width: calc(40% - 12px);
-  font-size: 15px;
-}
-input:focus { outline: none; border-color: #4a90e2; }
+.hidden { display: none; }
 
 /* Modal */
 .modal {
@@ -98,24 +68,18 @@ input:focus { outline: none; border-color: #4a90e2; }
 }
 .modal-content {
   background: #fff;
-  padding: 25px;
-  border-radius: 14px;
+  padding: 20px;
+  border-radius: 12px;
   text-align: center;
-  width: 320px;
-  max-width: 90%;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-}
-.modal-content h3 {
-  margin-top: 0;
-  color: #4a90e2;
+  width: 300px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
 .modal.hidden { display: none; }
 
-/* Preview list */
 #previewList img {
-  width:130px;
-  margin:8px;
-  border-radius:10px;
+  width:120px;
+  margin:5px;
+  border-radius:8px;
   box-shadow:0 2px 6px rgba(0,0,0,0.3);
 }
 </style>
@@ -179,8 +143,8 @@ input:focus { outline: none; border-color: #4a90e2; }
 <div id="newDocDialog" class="modal hidden">
   <div class="modal-content">
     <h3>📑 Nhập tên tài liệu</h3>
-    <input type="text" id="docNameInput" placeholder="Tên tài liệu..." style="width:90%;padding:10px;margin:10px;">
-    <br>
+    <input type="text" id="docNameInput" placeholder="Tên tài liệu...">
+    <br><br>
     <button onclick="createDocument()">Tạo</button>
     <button onclick="closeDialog()">Hủy</button>
   </div>
@@ -197,7 +161,270 @@ input:focus { outline: none; border-color: #4a90e2; }
 </div>
 
 <script>
-/* (giữ nguyên toàn bộ JS bạn đã có ở trên - không đổi chức năng) */
+let currentSubject = "";
+let currentDocId = null;
+let stream = null;
+let docToDelete = null;
+let usingFront = true; // mặc định dùng cam trước
+
+/* IndexedDB */
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open("StudyApp", 1);
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains("documents")) {
+        db.createObjectStore("documents", { keyPath: "id", autoIncrement: true });
+      }
+    };
+    request.onsuccess = (e) => resolve(e.target.result);
+    request.onerror = (e) => reject(e.target.error);
+  });
+}
+async function getAllDocs() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("documents", "readonly");
+    const store = tx.objectStore("documents");
+    const request = store.getAll();
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+async function addDoc(doc) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("documents", "readwrite");
+    const store = tx.objectStore("documents");
+    const request = store.add(doc);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = (e) => reject(e.target.error);
+  });
+}
+async function updateDoc(doc) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("documents", "readwrite");
+    const store = tx.objectStore("documents");
+    const request = store.put(doc);
+    request.onsuccess = () => resolve();
+    request.onerror = (e) => reject(e.target.error);
+  });
+}
+async function deleteDoc(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("documents", "readwrite");
+    const store = tx.objectStore("documents");
+    const request = store.delete(id);
+    request.onsuccess = () => resolve();
+    request.onerror = (e) => reject(e.target.error);
+  });
+}
+async function getDoc(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("documents", "readonly");
+    const store = tx.objectStore("documents");
+    const request = store.get(id);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = (e) => reject(e.target.error);
+  });
+}
+
+/* Môn học */
+async function openSubject(name) {
+  currentSubject = name;
+  document.getElementById("subjectTitle").innerText = "Môn: " + name;
+  document.getElementById("home").classList.add("hidden");
+  document.getElementById("subjectPage").classList.remove("hidden");
+  loadTasks();
+  showDocs();
+}
+function goHome() {
+  document.getElementById("subjectPage").classList.add("hidden");
+  document.getElementById("home").classList.remove("hidden");
+}
+
+/* Bài tập */
+function addTask() {
+  const taskText = document.getElementById("taskInput").value.trim();
+  const deadline = document.getElementById("taskDeadline").value;
+  if (!taskText || !deadline) { alert("Vui lòng nhập đầy đủ thông tin!"); return; }
+  let tasks = JSON.parse(localStorage.getItem("tasks_" + currentSubject) || "[]");
+  tasks.push({ text: taskText, deadline: deadline });
+  localStorage.setItem("tasks_" + currentSubject, JSON.stringify(tasks));
+  document.getElementById("taskInput").value = "";
+  document.getElementById("taskDeadline").value = "";
+  loadTasks();
+}
+function deleteTask(index) {
+  let tasks = JSON.parse(localStorage.getItem("tasks_" + currentSubject) || "[]");
+  tasks.splice(index, 1);
+  localStorage.setItem("tasks_" + currentSubject, JSON.stringify(tasks));
+  loadTasks();
+}
+function loadTasks() {
+  let tasks = JSON.parse(localStorage.getItem("tasks_" + currentSubject) || "[]");
+  const list = document.getElementById("taskList");
+  list.innerHTML = "";
+  const today = new Date().toISOString().split("T")[0];
+  tasks.forEach((task,i) => {
+    const div = document.createElement("div");
+    div.classList.add("task");
+    if (task.deadline < today) div.classList.add("overdue");
+    div.innerHTML = `<b>${task.text}</b><br>Hạn: ${task.deadline} 
+      <button onclick="deleteTask(${i})">❌</button>`;
+    list.appendChild(div);
+  });
+}
+
+/* Tài liệu */
+async function showDocs() {
+  const list = document.getElementById("docList");
+  list.innerHTML = "";
+  const allDocs = await getAllDocs();
+  const docs = allDocs.filter(d => d.subject === currentSubject);
+  docs.forEach(doc=>{
+    const div = document.createElement("div");
+    div.className="doc";
+    div.innerHTML = `
+      <b>${doc.name}</b><br>
+      (${doc.images.length} ảnh)<br>
+      <button onclick="viewDoc(${doc.id})">👁 Xem</button>
+      <button onclick="openDeleteDialog(${doc.id}, '${doc.name}')">🗑 Xoá</button>
+    `;
+    list.appendChild(div);
+  });
+}
+function openNewDocDialog() {
+  document.getElementById("docNameInput").value="";
+  document.getElementById("newDocDialog").classList.remove("hidden");
+}
+function closeDialog() {
+  document.getElementById("newDocDialog").classList.add("hidden");
+}
+async function createDocument() {
+  const name = document.getElementById("docNameInput").value.trim();
+  if (!name) return;
+  closeDialog();
+  currentDocId = await addDoc({subject: currentSubject, name: name, images: []});
+  document.getElementById("docTitle").innerText = "Tài liệu: " + name;
+  document.getElementById("subjectPage").classList.add("hidden");
+  document.getElementById("cameraPage").classList.remove("hidden");
+  document.getElementById("previewList").innerHTML = ""; 
+  openCamera();
+}
+
+/* Camera */
+async function openCamera() {
+  if (stream) stream.getTracks().forEach(t=>t.stop());
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: usingFront ? "user" : "environment" }
+    });
+    const video = document.getElementById("video");
+    video.srcObject = stream;
+    await video.play(); // fix iPhone video đen
+    // Nếu trên điện thoại -> hiện nút đổi camera
+    if (/Mobi|Android|iPhone/i.test(navigator.userAgent)) {
+      document.getElementById("switchBtn").classList.remove("hidden");
+    } else {
+      document.getElementById("switchBtn").classList.add("hidden");
+    }
+  } catch(err) {
+    alert("Không thể mở camera: " + err);
+  }
+}
+function switchCamera() {
+  usingFront = !usingFront;
+  openCamera();
+}
+async function takePhoto() {
+  const video = document.getElementById("video");
+  const canvas = document.getElementById("canvas");
+  const ctx = canvas.getContext("2d");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  ctx.drawImage(video,0,0);
+  const imgData = canvas.toDataURL("image/jpeg", 0.7);
+  let doc = await getDoc(currentDocId);
+  doc.images.push(imgData);
+  await updateDoc(doc);
+  showPreviewImages(doc.images);
+}
+function showPreviewImages(images) {
+  const list = document.getElementById("previewList");
+  list.innerHTML = "";
+  images.forEach((img,i)=>{
+    const container = document.createElement("div");
+    const image = document.createElement("img");
+    image.src = img;
+    const btn = document.createElement("button");
+    btn.textContent = "🗑 Xoá";
+    btn.onclick = async ()=>{
+      let doc = await getDoc(currentDocId);
+      doc.images.splice(i,1);
+      await updateDoc(doc);
+      showPreviewImages(doc.images);
+    };
+    container.appendChild(image);
+    container.appendChild(btn);
+    list.appendChild(container);
+  });
+}
+function finishCapture() {
+  if (stream) stream.getTracks().forEach(t=>t.stop());
+  document.getElementById("cameraPage").classList.add("hidden");
+  document.getElementById("subjectPage").classList.remove("hidden");
+  showDocs();
+}
+async function viewDoc(id) {
+  const doc = await getDoc(id);
+  currentDocId = id;
+  document.getElementById("viewDocTitle").innerText = "📑 " + doc.name;
+  const list = document.getElementById("photoList");
+  list.innerHTML = "";
+  doc.images.forEach((img,i)=>{
+    const container = document.createElement("div");
+    const image = document.createElement("img");
+    image.src = img;
+    const btn = document.createElement("button");
+    btn.textContent = "🗑 Xoá ảnh";
+    btn.onclick = async ()=>{
+      let d = await getDoc(currentDocId);
+      d.images.splice(i,1);
+      await updateDoc(d);
+      viewDoc(currentDocId);
+    };
+    container.appendChild(image);
+    container.appendChild(btn);
+    list.appendChild(container);
+  });
+  document.getElementById("subjectPage").classList.add("hidden");
+  document.getElementById("viewDocPage").classList.remove("hidden");
+}
+function backToDocs() {
+  document.getElementById("viewDocPage").classList.add("hidden");
+  document.getElementById("subjectPage").classList.remove("hidden");
+}
+function openDeleteDialog(id, name) {
+  docToDelete = id;
+  document.getElementById("deleteDocMessage").innerText =
+    `Bạn có chắc muốn xoá tài liệu "${name}" không?`;
+  document.getElementById("deleteDocDialog").classList.remove("hidden");
+}
+function closeDeleteDialog() {
+  document.getElementById("deleteDocDialog").classList.add("hidden");
+  docToDelete = null;
+}
+async function confirmDeleteDoc() {
+  if (docToDelete !== null) {
+    await deleteDoc(docToDelete);
+    showDocs();
+  }
+  closeDeleteDialog();
+}
 </script>
 </body>
 </html>
